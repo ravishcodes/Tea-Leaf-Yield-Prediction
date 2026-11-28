@@ -1,14 +1,14 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: tea-leaf-api
+  name: mp148-api
   labels:
-    app: tea-leaf-api
+    app: mp148-api
 spec:
-  replicas: 3
+  replicas: 4
   selector:
     matchLabels:
-      app: tea-leaf-api
+      app: mp148-api
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -17,11 +17,11 @@ spec:
   template:
     metadata:
       labels:
-        app: tea-leaf-api
+        app: mp148-api
     spec:
       containers:
-        - name: tea-leaf-api
-          image: tea-leaf-api:1.0.0
+        - name: mp148-api
+          image: mp148-api:1.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
@@ -36,32 +36,31 @@ spec:
           env:
             - name: PYTHONUNBUFFERED
               value: "1"
-          # Startup probe — allow time for model loading
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+          # Startup probe — allow time for initial model loading
           startupProbe:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 2
-            periodSeconds: 3
-            failureThreshold: 20       # Up to 60 s for model loading
-          # Readiness probe — ensure model is loaded before receiving traffic
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12       # Up to 60s for model loading
+          # Readiness probe — route traffic only when model is confirmed loaded
           readinessProbe:
             httpGet:
-              path: /ready
+              path: /health
               port: 8000
-            initialDelaySeconds: 2
-            periodSeconds: 5
+            initialDelaySeconds: 10
+            periodSeconds: 10
             failureThreshold: 3
-          # Liveness probe — restart if the app becomes unresponsive
+          # Liveness probe — restart if unresponsive (waits longer than readiness)
           livenessProbe:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 5
-            periodSeconds: 10
+            initialDelaySeconds: 30
+            periodSeconds: 20
             failureThreshold: 3
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
