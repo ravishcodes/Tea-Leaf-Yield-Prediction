@@ -1,12 +1,15 @@
-"""Tests for Docker, Kubernetes manifests, logging, and deployment endpoints."""
+"""Tests for Docker, Kubernetes manifests, JSON logging, and deployment endpoints."""
 
+import io
+import json
+import logging
 from pathlib import Path
 
 import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from app import app, readiness, predict, PredictionInput
+from app import JsonFormatter, PredictionInput, app, health, predict, readiness
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -68,7 +71,7 @@ def service_manifest():
 
 
 class TestKubernetesManifests:
-    """Validate Kubernetes YAML structure without requiring a live cluster."""
+    """Validate Kubernetes YAML structure against assignment requirements."""
 
     def test_deployment_api_version(self, deployment_manifest):
         assert deployment_manifest["apiVersion"] == "apps/v1"
@@ -77,10 +80,15 @@ class TestKubernetesManifests:
         assert deployment_manifest["kind"] == "Deployment"
 
     def test_deployment_name(self, deployment_manifest):
-        assert deployment_manifest["metadata"]["name"] == "tea-leaf-api"
+        assert deployment_manifest["metadata"]["name"] == "mp148-api"
 
     def test_deployment_replicas(self, deployment_manifest):
-        assert deployment_manifest["spec"]["replicas"] == 3
+        assert deployment_manifest["spec"]["replicas"] == 4
+
+    def test_deployment_image_tag(self, deployment_manifest):
+        container = deployment_manifest["spec"]["template"]["spec"]["containers"][0]
+        assert container["name"] == "mp148-api"
+        assert container["image"] == "mp148-api:1.0"
 
     def test_deployment_container_port(self, deployment_manifest):
         containers = deployment_manifest["spec"]["template"]["spec"]["containers"]
@@ -90,14 +98,20 @@ class TestKubernetesManifests:
     def test_deployment_has_readiness_probe(self, deployment_manifest):
         container = deployment_manifest["spec"]["template"]["spec"]["containers"][0]
         assert "readinessProbe" in container
-        assert container["readinessProbe"]["httpGet"]["path"] == "/ready"
+        assert container["readinessProbe"]["httpGet"]["path"] == "/health"
         assert container["readinessProbe"]["httpGet"]["port"] == 8000
+        assert container["readinessProbe"]["initialDelaySeconds"] == 10
 
     def test_deployment_has_liveness_probe(self, deployment_manifest):
         container = deployment_manifest["spec"]["template"]["spec"]["containers"][0]
         assert "livenessProbe" in container
         assert container["livenessProbe"]["httpGet"]["path"] == "/health"
         assert container["livenessProbe"]["httpGet"]["port"] == 8000
+        assert container["livenessProbe"]["initialDelaySeconds"] == 30
+        assert (
+            container["livenessProbe"]["initialDelaySeconds"]
+            > container["readinessProbe"]["initialDelaySeconds"]
+        )
 
     def test_deployment_has_startup_probe(self, deployment_manifest):
         container = deployment_manifest["spec"]["template"]["spec"]["containers"][0]
@@ -128,7 +142,7 @@ class TestKubernetesManifests:
         assert service_manifest["kind"] == "Service"
 
     def test_service_name(self, service_manifest):
-        assert service_manifest["metadata"]["name"] == "tea-leaf-api-service"
+        assert service_manifest["metadata"]["name"] == "mp148-svc"
 
     def test_service_type(self, service_manifest):
         assert service_manifest["spec"]["type"] == "ClusterIP"
@@ -149,15 +163,22 @@ class TestKubernetesManifests:
 
 
 # ================================================================
-# Readiness endpoint tests
+# Readiness and health endpoint tests
 # ================================================================
-class TestReadinessEndpoint:
-    """Verify readiness probe endpoint behavior."""
+class TestHealthAndReadinessEndpoints:
+    """Verify health and readiness probe endpoints."""
+
+    def test_health_direct(self):
+        response = health()
+        assert response["status"] == "ok"
+        assert response["model_loaded"] is True
+        assert response["model_version"] == 4
 
     def test_readiness_direct(self):
         response = readiness()
         assert response["status"] == "ready"
         assert response["model_loaded"] is True
+        assert response["model_version"] == 4
 
     def test_readiness_http(self):
         client = TestClient(app)
@@ -166,25 +187,37 @@ class TestReadinessEndpoint:
         data = response.json()
         assert data["status"] == "ready"
         assert data["model_loaded"] is True
+        assert data["model_version"] == 4
+
+    def test_health_http(self):
+        client = TestClient(app)
+        response = client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert data["model_loaded"] is True
+        assert data["model_version"] == 4
 
 
 # ================================================================
-# Logging tests
+# Logging tests (Machine-readable JSON)
 # ================================================================
 class TestApplicationLogging:
-    """Verify that the app configures and executes structured logging."""
+    """Verify that the app configures and executes machine-readable JSON logging."""
 
     def test_app_uses_logging(self):
         content = (ROOT / "app.py").read_text()
         assert "import logging" in content
+        assert "import json" in content
 
-    def test_app_configures_logger(self):
+    def test_app_configures_json_formatter(self):
         content = (ROOT / "app.py").read_text()
-        assert "getLogger" in content
+        assert "class JsonFormatter" in content
+        assert "json.dumps" in content
 
     def test_app_logs_to_stdout(self):
         content = (ROOT / "app.py").read_text()
-        assert "StreamHandler" in content
+        assert "StreamHandler(sys.stdout)" in content
 
     def test_app_has_lifespan_logging(self):
         content = (ROOT / "app.py").read_text()
@@ -192,11 +225,18 @@ class TestApplicationLogging:
 
     def test_app_has_prediction_logging(self):
         content = (ROOT / "app.py").read_text()
-        assert "Prediction" in content
+        assert "prediction" in content.lower()
 
-    def test_prediction_logs_execution(self, caplog):
-        import logging
-        with caplog.at_level(logging.INFO, logger="tea_leaf_api"):
+    def test_prediction_emits_valid_json_log(self):
+        """Execute a prediction and verify that captured log lines parse as valid JSON."""
+        log_capture_string = io.StringIO()
+        ch = logging.StreamHandler(log_capture_string)
+        ch.setFormatter(JsonFormatter())
+
+        target_logger = logging.getLogger("tea_leaf_api")
+        target_logger.addHandler(ch)
+
+        try:
             data = PredictionInput(
                 worker_exp_yr=48,
                 rain_mm_week=285,
@@ -207,8 +247,27 @@ class TestApplicationLogging:
                 flush="monsoon",
                 section="River Side",
             )
-            predict(data)
+            result = predict(data)
+            assert "predicted_yield_kg_per_worker" in result
 
-        log_messages = [record.message for record in caplog.records]
-        assert any("Prediction request" in msg for msg in log_messages)
-        assert any("Prediction successful" in msg for msg in log_messages)
+            log_output = log_capture_string.getvalue().strip()
+            assert log_output, "No log records captured"
+
+            # Parse each captured line as JSON
+            lines = [line for line in log_output.split("\n") if line.strip()]
+            records = [json.loads(line) for line in lines]
+
+            # Look for the prediction_success record
+            success_records = [r for r in records if r.get("event") == "prediction_success"]
+            assert len(success_records) >= 1, f"Expected prediction_success event, found {records}"
+
+            rec = success_records[0]
+            assert "timestamp" in rec
+            assert rec["level"] == "INFO"
+            assert rec["model_version"] == 4
+            assert "prediction" in rec
+            assert "latency_ms" in rec
+            assert rec["status_code"] == 200
+            assert rec["endpoint"] == "/predict"
+        finally:
+            target_logger.removeHandler(ch)

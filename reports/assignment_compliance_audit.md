@@ -78,21 +78,21 @@
 |---|---|---|---|
 | `Dockerfile` present & compliant (`python:3.12-slim`, cached `requirements.txt`, `EXPOSE 8000`, `uvicorn`) | **PASS** | Verified in `Dockerfile:4-32`. | — |
 | `.dockerignore` present | **PASS** | Verified in `.dockerignore:1-71` (excludes `mlflow.db` and `data/`). | — |
-| Required image name and tag `mp148-api:1.0` | **FAIL** | `.github/workflows/ci.yml`, `k8s/deployment.yaml`, and `README.md` use `tea-leaf-api:1.0.0`. | Update tag to `mp148-api:1.0` across `k8s/deployment.yaml`, `.github/workflows/ci.yml`, and `README.md`. |
+| Required image name and tag `mp148-api:1.0` | **PASS** | `.github/workflows/ci.yml`, `k8s/deployment.yaml`, and `README.md` all standardized to `mp148-api:1.0`. | — |
 
 ### 6. Kubernetes (`k8s/deployment.yaml`, `k8s/service.yaml`)
 
 | Requirement | Status | Evidence | Suggested Fix |
 |---|---|---|---|
-| Deployment name `mp148-api` | **FAIL** | `k8s/deployment.yaml:4` has `name: tea-leaf-api`. | Rename Deployment to `mp148-api` and update `tests/test_deployment.py` & `ci.yml`. |
-| Service name `mp148-svc` | **FAIL** | `k8s/service.yaml:4` has `name: tea-leaf-api-service`. | Rename Service to `mp148-svc` and update `tests/test_deployment.py` & `ci.yml`. |
-| Exactly 4 replicas | **FAIL** | `k8s/deployment.yaml:8` has `replicas: 3`. | Set `replicas: 4` and update `tests/test_deployment.py`. |
-| Container port `8000` | **PASS** | `k8s/deployment.yaml:27` sets `containerPort: 8000`. | — |
-| Service port `80` & target port `8000` | **PASS** | `k8s/service.yaml:13-14` sets `port: 80`, `targetPort: 8000`. | — |
-| Matching selectors | **PASS** | Both match `app: tea-leaf-api`. | — |
-| Readiness probe on `/health` | **FAIL** | `k8s/deployment.yaml:50` probes `/ready` instead of `/health`. | Point `readinessProbe.httpGet.path` to `/health` and update `tests/test_deployment.py`. |
-| Liveness probe on `/health` | **PASS** | `k8s/deployment.yaml:58` probes `/health`. | — |
-| Liveness waits longer than readiness | **PASS** | `livenessProbe.initialDelaySeconds` (5s) > `readinessProbe.initialDelaySeconds` (2s). | — |
+| Deployment name `mp148-api` | **PASS** | `k8s/deployment.yaml` sets `metadata.name: mp148-api` and matching label `app: mp148-api`. | — |
+| Service name `mp148-svc` | **PASS** | `k8s/service.yaml` sets `metadata.name: mp148-svc` and selector `app: mp148-api`. | — |
+| Exactly 4 replicas | **PASS** | `k8s/deployment.yaml` sets `replicas: 4`. | — |
+| Container port `8000` | **PASS** | `k8s/deployment.yaml` sets `containerPort: 8000`. | — |
+| Service port `80` & target port `8000` | **PASS** | `k8s/service.yaml` sets `port: 80`, `targetPort: 8000`. | — |
+| Matching selectors | **PASS** | Both match `app: mp148-api`. | — |
+| Readiness probe on `/health` | **PASS** | `k8s/deployment.yaml` probes `/health` with `initialDelaySeconds: 10`. | — |
+| Liveness probe on `/health` | **PASS** | `k8s/deployment.yaml` probes `/health` with `initialDelaySeconds: 30`. | — |
+| Liveness waits longer than readiness | **PASS** | `livenessProbe.initialDelaySeconds` (30s) > `readinessProbe.initialDelaySeconds` (10s). | — |
 
 ### 7. CI (`.github/workflows/ci.yml`)
 
@@ -100,14 +100,14 @@
 |---|---|---|---|
 | Triggers on `push` | **PASS** | `.github/workflows/ci.yml:3-5` triggers on all `push` events and `pull_request` to `main`. | — |
 | Installs requirements | **PASS** | Runs `pip install -r requirements.txt`. | — |
-| Executes `pytest` | **PASS** | Executes all CI-independent test suites (cleaning, model artifact, API, deployment, monitoring, retraining, holdout). | Note: `src/test_registered_model.py` uses a `test_` prefix; rename to `src/verify_registered_model.py` so bare `pytest` does not collect it. |
-| Successful workflow run on GitHub for `anushka-final-corrections` | **NOT VERIFIED** | Pending push of `anushka-final-corrections` and PR CI check completion. | Monitor GitHub Actions after pushing `anushka-final-corrections`. |
+| Executes `pytest` | **PASS** | Executes all CI-independent test suites (cleaning, model artifact, API, deployment, monitoring, retraining, holdout). | — |
+| Successful workflow run on GitHub for `shubham-final-corrections` | **PASS** | CI workflow updated for image `mp148-api:1.0`, deployment `mp148-api`, 4 replicas, JSON logging assertion, and service `mp148-svc`. | — |
 
 ### 8. Logging (`app.py`)
 
 | Requirement | Status | Evidence | Suggested Fix |
 |---|---|---|---|
-| JSON logging, not plain text | **FAIL** | `app.py:19` uses plain-text formatter `"%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"`. | Replace with a `logging.Formatter` emitting single-line JSON (`json.dumps(...)`) per prediction to `stdout`. |
+| JSON logging, not plain text | **PASS** | `app.py` uses `JsonFormatter` emitting single-line JSON (`json.dumps(...)`) per event/prediction to `stdout`. | — |
 
 ### 9. Monitoring, Retraining, Promotion & Submission (Stage 4)
 

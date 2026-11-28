@@ -55,11 +55,11 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t tea-leaf-api:1.0.0 .
+          docker build -t mp148-api:1.0 .
 
       - name: Start container
         run: |
-          docker run -d --name tea-leaf-api -p 8000:8000 tea-leaf-api:1.0.0
+          docker run -d --name mp148-api -p 8000:8000 mp148-api:1.0
 
       - name: Wait for container startup
         run: |
@@ -112,16 +112,28 @@ jobs:
           echo "Invalid rain_mm_week status: $STATUS_RAIN"
           [ "$STATUS_RAIN" = "422" ] || (echo "Expected 422, got $STATUS_RAIN" && exit 1)
 
-      - name: Show container logs
-        if: always()
+      - name: Verify JSON log format
         run: |
-          docker logs tea-leaf-api
+          echo "=== DOCKER LOGS (VERIFYING JSON FORMAT) ==="
+          docker logs mp148-api
+          docker logs mp148-api | python3 -c "import sys, json
+lines = [l.strip() for l in sys.stdin if l.strip()]
+valid_json_count = 0
+for line in lines:
+    try:
+        data = json.loads(line)
+        valid_json_count += 1
+    except Exception:
+        pass
+print(f'Parsed {valid_json_count} valid JSON log lines from container stdout')
+assert valid_json_count > 0, 'No valid JSON lines found in container output'
+"
 
       - name: Cleanup container
         if: always()
         run: |
-          docker stop tea-leaf-api || true
-          docker rm tea-leaf-api || true
+          docker stop mp148-api || true
+          docker rm mp148-api || true
 
   # ----------------------------------------------------------------
   # Job 3: Kubernetes deployment smoke test with kind
@@ -140,11 +152,11 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t tea-leaf-api:1.0.0 .
+          docker build -t mp148-api:1.0 .
 
       - name: Load image into kind cluster
         run: |
-          kind load docker-image tea-leaf-api:1.0.0 --name kind
+          kind load docker-image mp148-api:1.0 --name kind
 
       - name: Apply Kubernetes manifests
         run: |
@@ -153,11 +165,11 @@ jobs:
 
       - name: Wait for deployment rollout
         run: |
-          kubectl rollout status deployment/tea-leaf-api --timeout=180s || {
+          kubectl rollout status deployment/mp148-api --timeout=180s || {
             echo "=== ROLLOUT FAILED: POD STATUS ==="
             kubectl get pods -o wide
             echo "=== DESCRIBE PODS ==="
-            kubectl describe pods -l app=tea-leaf-api
+            kubectl describe pods -l app=mp148-api
             echo "=== CLUSTER EVENTS ==="
             kubectl get events --sort-by='.lastTimestamp'
             exit 1
@@ -168,10 +180,14 @@ jobs:
           kubectl get pods -o wide
           kubectl get services
           kubectl get endpointslices
+          # Verify 4 replicas are present
+          REPLICAS=$(kubectl get deployment mp148-api -o jsonpath='{.status.readyReplicas}')
+          echo "Ready replicas: $REPLICAS"
+          [ "$REPLICAS" = "4" ] || (echo "Expected 4 ready replicas, got $REPLICAS" && exit 1)
 
       - name: Test service via port-forward
         run: |
-          kubectl port-forward service/tea-leaf-api-service 8080:80 &
+          kubectl port-forward service/mp148-svc 8080:80 &
           sleep 5
           curl -sf http://localhost:8080/health | python3 -c "import sys, json; d=json.load(sys.stdin); assert d['status'] == 'ok' and d['model_version'] == 4, d"
           curl -sf http://localhost:8080/ready
@@ -184,4 +200,4 @@ jobs:
       - name: Deployment logs
         if: always()
         run: |
-          kubectl logs -l app=tea-leaf-api --tail=50 || true
+          kubectl logs -l app=mp148-api --tail=50 || true
