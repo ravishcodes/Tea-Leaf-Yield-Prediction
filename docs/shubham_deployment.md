@@ -90,16 +90,16 @@ Excludes `.git`, `.venv`, `data/`, `mlruns/`, `tests/`, `notebooks/`, `docs/`, `
 
 ```bash
 # Build the Docker image
-docker build -t tea-leaf-api:1.0.0 .
+docker build -t mp148-api:1.0 .
 
 # Run the container
-docker run -d --name tea-leaf-api -p 8000:8000 tea-leaf-api:1.0.0
+docker run -d --name mp148-api -p 8000:8000 mp148-api:1.0
 
 # Check container status
 docker ps
 
 # View logs
-docker logs tea-leaf-api
+docker logs mp148-api
 
 # Test health endpoint
 curl http://localhost:8000/health
@@ -154,15 +154,15 @@ kubectl apply -f k8s/deployment.yaml
 kubectl apply -f k8s/service.yaml
 
 # Check rollout
-kubectl rollout status deployment/tea-leaf-api --timeout=180s
+kubectl rollout status deployment/mp148-api --timeout=180s
 kubectl get pods -o wide
 kubectl get services
 
 # View logs
-kubectl logs deployment/tea-leaf-api
+kubectl logs deployment/mp148-api
 
 # Port forward for local testing
-kubectl port-forward service/tea-leaf-api-service 8080:80
+kubectl port-forward service/mp148-svc 8080:80
 
 # Test through port-forward
 curl http://localhost:8080/health
@@ -179,8 +179,10 @@ The logging implementation uses Python's standard `logging` module with structur
 
 ### Log Format
 
-```
-2026-11-26T21:30:00 | INFO    | tea_leaf_api | Model loaded successfully
+The application emits structured, machine-readable JSON per line on `stdout`:
+
+```json
+{"timestamp": "2026-11-28T06:13:00.123456+00:00", "level": "INFO", "logger": "tea_leaf_api", "message": "Prediction successful: yield=24.39 kg/worker in 1.42 ms", "event": "prediction_success", "request_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "endpoint": "/predict", "method": "POST", "status_code": 200, "model_version": 4, "prediction": 24.39, "latency_ms": 1.42}
 ```
 
 ### Logged Events

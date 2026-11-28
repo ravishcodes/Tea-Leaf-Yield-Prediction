@@ -41,8 +41,8 @@ python -m src.predict_holdout   # Generate predictions/holdout_predictions.csv v
 ### Docker Deployment
 
 ```bash
-docker build -t tea-leaf-api:1.0.0 .
-docker run -d --name tea-leaf-api -p 8000:8000 tea-leaf-api:1.0.0
+docker build -t mp148-api:1.0 .
+docker run -d --name mp148-api -p 8000:8000 mp148-api:1.0
 ```
 
 ### Kubernetes Deployment
@@ -50,8 +50,8 @@ docker run -d --name tea-leaf-api -p 8000:8000 tea-leaf-api:1.0.0
 ```bash
 kubectl apply -f k8s/deployment.yaml
 kubectl apply -f k8s/service.yaml
-kubectl rollout status deployment/tea-leaf-api --timeout=180s
-kubectl port-forward service/tea-leaf-api-service 8080:80
+kubectl rollout status deployment/mp148-api --timeout=180s
+kubectl port-forward service/mp148-svc 8080:80
 ```
 
 ---
